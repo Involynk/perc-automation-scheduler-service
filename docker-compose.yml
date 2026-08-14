@@ -1,0 +1,107 @@
+services:
+  # ==============================================================================
+  # Redis - BullMQ Delayed Queue Engine
+  # ==============================================================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: perc-scheduler-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - perc-network
+
+  # ==============================================================================
+  # Apache Kafka (KRaft Mode - No Zookeeper Required)
+  # ==============================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: perc-scheduler-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-cluster cluster-id --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - perc-network
+
+  # ==============================================================================
+  # PERC Scheduler Service
+  # ==============================================================================
+  scheduler-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perc-scheduler-service
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      NODE_ENV: production
+      # DATABASE_URL comes from .env via env_file above
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_CLIENT_ID: perc-scheduler-service
+      KAFKA_GROUP_ID: perc-scheduler-group
+      KAFKA_USE_SSL: "false"
+      OUTBOX_POLL_INTERVAL_MS: "500"
+      OUTBOX_BATCH_SIZE: "50"
+      OUTBOX_MAX_RETRIES: "5"
+      BULLMQ_CONCURRENCY: "20"
+      BULLMQ_LOCK_DURATION_MS: "30000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/liveness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks:
+      - perc-network
+
+volumes:
+  redis_data:
+  kafka_data:
+
+networks:
+  perc-network:
+    driver: bridge
