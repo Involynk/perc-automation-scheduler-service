@@ -19,11 +19,19 @@ export default () => ({
     saslUsername: process.env.KAFKA_SASL_USERNAME || undefined,
     saslPassword: process.env.KAFKA_SASL_PASSWORD || undefined,
   },
+  timer: {
+    defaultFollowupDelayMs: parseInt(process.env.DEFAULT_FOLLOWUP_DELAY_MS, 10) || 7200000, // Default 2 hours (7200000ms)
+    meetingReminderLeadTimeMs: parseInt(process.env.MEETING_REMINDER_LEAD_TIME_MS, 10) || 3600000, // Default 1 hour (3600000ms)
+    postMeetingFeedbackDelayMs: parseInt(process.env.POST_MEETING_FEEDBACK_DELAY_MS, 10) || 1800000, // Default 30 mins (1800000ms)
+    minDelayMs: parseInt(process.env.MIN_TIMER_DELAY_MS, 10) || 10000, // 10s
+  },
   topics: {
-    scheduleRequested: 'perc.scheduler.timer-schedule-requested',
-    cancelRequested: 'perc.scheduler.timer-cancel-requested',
-    rescheduleRequested: 'perc.scheduler.timer-reschedule-requested',
-    timerTriggered: 'perc.scheduler.timer-triggered',
+    scheduleRequested: process.env.KAFKA_TOPIC_SCHEDULE_REQUESTED || 'perc.scheduler.timer-schedule-requested',
+    cancelRequested: process.env.KAFKA_TOPIC_CANCEL_REQUESTED || 'perc.scheduler.timer-cancel-requested',
+    rescheduleRequested: process.env.KAFKA_TOPIC_RESCHEDULE_REQUESTED || 'perc.scheduler.timer-reschedule-requested',
+    responseSent: process.env.KAFKA_TOPIC_RESPONSE_SENT || 'perc.response.sent',
+    meetingEvents: process.env.KAFKA_TOPIC_MEETING_EVENTS || 'perc.meeting-events',
+    timerTriggered: process.env.KAFKA_TOPIC_TIMER_TRIGGERED || 'perc.scheduler.timer-triggered',
     commandsDlq: 'perc.scheduler.commands.dlq',
     timerTriggeredDlq: 'perc.scheduler.timer-triggered.dlq',
   },

@@ -51,9 +51,13 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
         'topics.rescheduleRequested',
         'perc.scheduler.timer-reschedule-requested',
       );
+      const responseSentTopic = this.configService.get<string>(
+        'topics.responseSent',
+        'perc.response.sent',
+      );
 
       await this.consumer.subscribe({
-        topics: [scheduleTopic, cancelTopic, rescheduleTopic],
+        topics: [scheduleTopic, cancelTopic, rescheduleTopic, responseSentTopic],
         fromBeginning: false,
       });
 
@@ -63,7 +67,9 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      this.logger.log(`Subscribed to Kafka topics: ${scheduleTopic}, ${cancelTopic}, ${rescheduleTopic}`);
+      this.logger.log(
+        `Subscribed to Kafka topics: ${scheduleTopic}, ${cancelTopic}, ${rescheduleTopic}, ${responseSentTopic}`,
+      );
     } catch (error) {
       this.logger.error('Failed to initialize Kafka Consumer:', error);
       this.isConnected = false;
@@ -109,6 +115,7 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
     const scheduleTopic = this.configService.get<string>('topics.scheduleRequested');
     const cancelTopic = this.configService.get<string>('topics.cancelRequested');
     const rescheduleTopic = this.configService.get<string>('topics.rescheduleRequested');
+    const responseSentTopic = this.configService.get<string>('topics.responseSent');
 
     try {
       if (topic === scheduleTopic) {
@@ -117,6 +124,8 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
         await this.handleCancel(payload);
       } else if (topic === rescheduleTopic) {
         await this.handleReschedule(payload);
+      } else if (topic === responseSentTopic) {
+        await this.handleResponseSent(payload);
       } else {
         this.logger.warn(`Unhandled topic received: ${topic}`);
       }
@@ -151,6 +160,41 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       payload.opaquePayload || {},
     );
 
+    await this.timerService.scheduleTimer(command);
+  }
+
+  private async handleResponseSent(payload: any): Promise<void> {
+    const leadId = payload.leadId || payload.target?.entity_id || payload.correlationId;
+    if (!leadId) {
+      this.logger.warn('Skipping response-sent event: leadId / entity_id missing.');
+      return;
+    }
+
+    const defaultDelayMs = this.configService.get<number>('timer.defaultFollowupDelayMs', 7200000);
+    const executeAt = payload.targetExecutionTime || payload.executeAt
+      ? new Date(payload.targetExecutionTime || payload.executeAt)
+      : new Date(Date.now() + defaultDelayMs);
+
+    const requestingService = payload.requestingService || 'response-service';
+    const targetService = payload.targetService || payload.targetConsumer || 'followup-service';
+    const timerKey = `lead:${leadId}:followup`;
+    const eventId = payload.eventId || `evt_sched_${Date.now()}_${leadId.slice(0, 8)}`;
+
+    const command = new ScheduleTimerCommand(
+      eventId,
+      timerKey,
+      executeAt,
+      requestingService,
+      leadId,
+      {
+        leadId,
+        targetService,
+        requestingService,
+        triggeredByResponseEventId: payload.eventId || payload.id,
+      },
+    );
+
+    this.logger.log(`Received response-sent event. Scheduling timer ${timerKey} for targetService ${targetService} at ${executeAt.toISOString()}`);
     await this.timerService.scheduleTimer(command);
   }
 

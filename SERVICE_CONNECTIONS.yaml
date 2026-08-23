@@ -1,0 +1,83 @@
+# SERVICE_CONNECTIONS.yaml — scheduler-service
+# Format mirrors the master SERVICE_CONNECTIONS_MAP.yaml at the repo root.
+
+service: scheduler-service
+description: >
+  Central delay and action trigger engine. Manages persistent BullMQ delay jobs backed by
+  PostgreSQL. Fires actionable timer-triggered events to the correct targetService when a
+  timer expires. Does NOT emit "timer created" events — it is silent until a timer fires.
+  targetService isolation: every downstream consumer must filter by targetService === own-name.
+
+subscribes_to:
+  - topic: perc.lead-events
+    from_service: lead-capture-service
+    filter: none
+    action: >
+      Resets or extends the lead's 2-hour inactivity timer when an inbound message is received from the lead,
+      ensuring active leads are never sent automated follow-up messages while actively chatting.
+
+  - topic: perc.response.sent
+    from_service: response-service
+    filter: none
+    action: >
+      Creates or resets the lead's 2-hour follow-up inactivity countdown timer.
+      If a timer already exists for this lead (PENDING), its targetExecutionTime is pushed
+      forward by DEFAULT_FOLLOWUP_DELAY_MS (2 hours from now). BullMQ job is updated atomically.
+
+  - topic: perc.meeting-events
+    from_service: meeting-service
+    filter: "event === 'meeting.booked'"
+    action: >
+      Schedules pre-meeting reminder timer for targetExecutionTime = scheduledAt - MEETING_REMINDER_LEAD_TIME_MS
+      (default 1 hour before meeting). Tags timer with targetService: 'notification-service'.
+
+  - topic: perc.meeting-events
+    from_service: meeting-service
+    filter: "event === 'meeting.completed'"
+    action: >
+      Schedules post-meeting feedback timer for targetExecutionTime = now + POST_MEETING_FEEDBACK_DELAY_MS
+      (default 30 minutes post-meeting). Tags timer with targetService: 'followup-service'.
+
+  - topic: perc.scheduler.timer-schedule-requested
+    from_service: "followup-service | meeting-service | workflow-service"
+    filter: none
+    action: "Schedules a custom named timer with an explicit targetExecutionTime and targetService tag"
+
+  - topic: perc.scheduler.timer-cancel-requested
+    from_service: "followup-service | meeting-service"
+    filter: none
+    action: "Cancels a pending timer by timerKey, transitions DB record to CANCELLED"
+
+  - topic: perc.scheduler.timer-reschedule-requested
+    from_service: "followup-service | meeting-service"
+    filter: none
+    action: "Updates an existing pending timer's targetExecutionTime without cancelling it"
+
+produces:
+  - topic: perc.scheduler.timer-triggered
+    event: timer.triggered
+    kafka_key: correlationId    # correlationId = leadId — ensures ordered processing per lead
+    payload_schema:
+      eventId: string
+      timerId: string           # PostgreSQL timer record UUID
+      timerKey: string          # e.g. 'lead:<leadId>:followup'
+      correlationId: string     # leadId
+      requestingService: string # Service that originally scheduled this timer
+      targetService: string     # KEY: which service must process this trigger
+      opaquePayload:
+        leadId: string
+        targetService: string
+      firedAt: string           # ISO 8601
+    isolation_rule: >
+      Each subscriber MUST check payload.targetService === '<own-service-name>' before processing.
+      Events intended for a different service are SILENTLY IGNORED. This prevents cross-talk.
+    subscribers:
+      - service: followup-service
+        filter: "targetService === 'followup-service'"
+        action: "Fetches conversation history, dispatches context-aware follow-up via response-service"
+      - service: meeting-service
+        filter: "targetService === 'meeting-service'"
+        action: "Executes scheduled pre-meeting reminder delivery"
+      - service: notification-service
+        filter: "targetService === 'notification-service'"
+        action: "Executes a deferred staff alert notification"

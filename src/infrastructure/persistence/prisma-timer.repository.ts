@@ -54,13 +54,7 @@ export class PrismaTimerRepository implements ITimerRepository {
       });
 
       if (existing) {
-        if (existing.status === TimerStatus.PENDING) {
-          // Idempotent return for already pending timer
-          this.logger.log(`Timer ${data.timerKey} is already PENDING.`);
-          return { timer: this.mapToEntity(existing), isDuplicate: false };
-        }
-
-        // Reactivate cancelled or executed timer if re-scheduled
+        // Update target execution time and payload for existing pending, cancelled, or executed timer
         const updated = await tx.timer.update({
           where: { id: existing.id },
           data: {
@@ -306,6 +300,7 @@ export class PrismaTimerRepository implements ITimerRepository {
         timerId: updatedTimer.id,
         timerKey: updatedTimer.timerKey,
         requestingService: updatedTimer.requestingService,
+        targetService: (updatedTimer.opaquePayload as any)?.targetService || updatedTimer.requestingService,
         correlationId: updatedTimer.correlationId,
         opaquePayload: updatedTimer.opaquePayload,
         firedAt: now.toISOString(),
