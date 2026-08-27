@@ -9,13 +9,6 @@ description: >
   targetService isolation: every downstream consumer must filter by targetService === own-name.
 
 subscribes_to:
-  - topic: perc.lead-events
-    from_service: lead-capture-service
-    filter: none
-    action: >
-      Resets or extends the lead's 2-hour inactivity timer when an inbound message is received from the lead,
-      ensuring active leads are never sent automated follow-up messages while actively chatting.
-
   - topic: perc.response.sent
     from_service: response-service
     filter: none
@@ -37,21 +30,6 @@ subscribes_to:
     action: >
       Schedules post-meeting feedback timer for targetExecutionTime = now + POST_MEETING_FEEDBACK_DELAY_MS
       (default 30 minutes post-meeting). Tags timer with targetService: 'followup-service'.
-
-  - topic: perc.scheduler.timer-schedule-requested
-    from_service: "followup-service | meeting-service | workflow-service"
-    filter: none
-    action: "Schedules a custom named timer with an explicit targetExecutionTime and targetService tag"
-
-  - topic: perc.scheduler.timer-cancel-requested
-    from_service: "followup-service | meeting-service"
-    filter: none
-    action: "Cancels a pending timer by timerKey, transitions DB record to CANCELLED"
-
-  - topic: perc.scheduler.timer-reschedule-requested
-    from_service: "followup-service | meeting-service"
-    filter: none
-    action: "Updates an existing pending timer's targetExecutionTime without cancelling it"
 
 produces:
   - topic: perc.scheduler.timer-triggered

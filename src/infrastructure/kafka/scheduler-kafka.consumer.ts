@@ -3,8 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
 import { TimerService } from '../../application/services/timer.service';
 import { ScheduleTimerCommand } from '../../application/commands/schedule-timer.command';
-import { CancelTimerCommand } from '../../application/commands/cancel-timer.command';
-import { RescheduleTimerCommand } from '../../application/commands/reschedule-timer.command';
 import { SchedulerKafkaProducer } from './scheduler-kafka.producer';
 
 @Injectable()
@@ -39,25 +37,13 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       this.isConnected = true;
       this.logger.log('Scheduler Kafka Consumer connected.');
 
-      const scheduleTopic = this.configService.get<string>(
-        'topics.scheduleRequested',
-        'perc.scheduler.timer-schedule-requested',
-      );
-      const cancelTopic = this.configService.get<string>(
-        'topics.cancelRequested',
-        'perc.scheduler.timer-cancel-requested',
-      );
-      const rescheduleTopic = this.configService.get<string>(
-        'topics.rescheduleRequested',
-        'perc.scheduler.timer-reschedule-requested',
-      );
       const responseSentTopic = this.configService.get<string>(
         'topics.responseSent',
         'perc.response.sent',
       );
 
       await this.consumer.subscribe({
-        topics: [scheduleTopic, cancelTopic, rescheduleTopic, responseSentTopic],
+        topics: [responseSentTopic],
         fromBeginning: false,
       });
 
@@ -68,7 +54,7 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       });
 
       this.logger.log(
-        `Subscribed to Kafka topics: ${scheduleTopic}, ${cancelTopic}, ${rescheduleTopic}, ${responseSentTopic}`,
+        `Subscribed to Kafka topics: ${responseSentTopic}`,
       );
     } catch (error) {
       this.logger.error('Failed to initialize Kafka Consumer:', error);
@@ -112,19 +98,10 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const scheduleTopic = this.configService.get<string>('topics.scheduleRequested');
-    const cancelTopic = this.configService.get<string>('topics.cancelRequested');
-    const rescheduleTopic = this.configService.get<string>('topics.rescheduleRequested');
     const responseSentTopic = this.configService.get<string>('topics.responseSent');
 
     try {
-      if (topic === scheduleTopic) {
-        await this.handleSchedule(payload);
-      } else if (topic === cancelTopic) {
-        await this.handleCancel(payload);
-      } else if (topic === rescheduleTopic) {
-        await this.handleReschedule(payload);
-      } else if (topic === responseSentTopic) {
+      if (topic === responseSentTopic) {
         await this.handleResponseSent(payload);
       } else {
         this.logger.warn(`Unhandled topic received: ${topic}`);
@@ -140,27 +117,16 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       });
     }
   }
-
-  private async handleSchedule(payload: any): Promise<void> {
-    if (!payload.timerKey || !payload.targetExecutionTime || !payload.requestingService || !payload.correlationId) {
-      throw new Error('Missing required fields for timer-schedule-requested event.');
+    } catch (handlerError: any) {
+      this.logger.error(`Error processing message from topic ${topic}:`, handlerError);
+      const dlqTopic = this.configService.get<string>('topics.commandsDlq', 'perc.scheduler.commands.dlq');
+      await this.kafkaProducer.publishToDlq(dlqTopic, payload.correlationId || messageKey, {
+        topic,
+        payload,
+        error: handlerError.message,
+        failedAt: new Date().toISOString(),
+      });
     }
-
-    const targetDate = new Date(payload.targetExecutionTime);
-    if (isNaN(targetDate.getTime())) {
-      throw new Error(`Invalid targetExecutionTime format: ${payload.targetExecutionTime}`);
-    }
-
-    const command = new ScheduleTimerCommand(
-      payload.eventId,
-      payload.timerKey,
-      targetDate,
-      payload.requestingService,
-      payload.correlationId,
-      payload.opaquePayload || {},
-    );
-
-    await this.timerService.scheduleTimer(command);
   }
 
   private async handleResponseSent(payload: any): Promise<void> {
@@ -196,43 +162,5 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(`Received response-sent event. Scheduling timer ${timerKey} for targetService ${targetService} at ${executeAt.toISOString()}`);
     await this.timerService.scheduleTimer(command);
-  }
-
-  private async handleCancel(payload: any): Promise<void> {
-    if (!payload.timerKey && !payload.timerKeyPrefix) {
-      throw new Error('Either timerKey or timerKeyPrefix is required for timer-cancel-requested event.');
-    }
-
-    const command = new CancelTimerCommand(
-      payload.eventId,
-      payload.timerKey,
-      payload.timerKeyPrefix,
-      payload.requestingService || 'unknown',
-      payload.reason,
-    );
-
-    await this.timerService.cancelTimer(command);
-  }
-
-  private async handleReschedule(payload: any): Promise<void> {
-    if (!payload.timerKey || !payload.newTargetExecutionTime) {
-      throw new Error('Missing required fields for timer-reschedule-requested event.');
-    }
-
-    const newTargetDate = new Date(payload.newTargetExecutionTime);
-    if (isNaN(newTargetDate.getTime())) {
-      throw new Error(`Invalid newTargetExecutionTime format: ${payload.newTargetExecutionTime}`);
-    }
-
-    const command = new RescheduleTimerCommand(
-      payload.eventId,
-      payload.timerKey,
-      newTargetDate,
-      payload.requestingService || 'unknown',
-      payload.correlationId || 'unknown',
-      payload.updatedOpaquePayload,
-    );
-
-    await this.timerService.rescheduleTimer(command);
   }
 }
