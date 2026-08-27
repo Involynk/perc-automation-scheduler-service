@@ -42,9 +42,8 @@ export class SchedulerKafkaProducer implements OnModuleInit, OnModuleDestroy {
       this.isConnected = true;
       this.logger.log('Scheduler Kafka Producer connected successfully.');
     } catch (error) {
-      this.logger.error('Failed to connect Kafka Producer:', error);
+      this.logger.error('Failed to connect Kafka Producer (Broker may be unreachable). Continuing without Kafka producer.', error);
       this.isConnected = false;
-      throw error;
     }
   }
 

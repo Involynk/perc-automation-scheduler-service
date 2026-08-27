@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
+import { Kafka, Consumer, EachMessagePayload, SASLOptions } from 'kafkajs';
 import { TimerService } from '../../application/services/timer.service';
 import { ScheduleTimerCommand } from '../../application/commands/schedule-timer.command';
 import { SchedulerKafkaProducer } from './scheduler-kafka.producer';
@@ -21,11 +21,22 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
     const clientId = this.configService.get<string>('kafka.clientId', 'perc-scheduler-service');
     const groupId = this.configService.get<string>('kafka.groupId', 'perc-scheduler-group');
     const ssl = this.configService.get<boolean>('kafka.ssl', false);
+    const saslMechanism = this.configService.get<string>('kafka.saslMechanism');
+
+    let sasl: SASLOptions | undefined = undefined;
+    if (saslMechanism) {
+      sasl = {
+        mechanism: saslMechanism as any,
+        username: this.configService.get<string>('kafka.saslUsername', ''),
+        password: this.configService.get<string>('kafka.saslPassword', ''),
+      };
+    }
 
     this.kafka = new Kafka({
       clientId: `${clientId}-consumer`,
       brokers,
       ssl,
+      sasl,
     });
 
     this.consumer = this.kafka.consumer({ groupId });
@@ -57,9 +68,8 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
         `Subscribed to Kafka topics: ${responseSentTopic}`,
       );
     } catch (error) {
-      this.logger.error('Failed to initialize Kafka Consumer:', error);
+      this.logger.error('Failed to initialize Kafka Consumer (Broker may be unreachable). Continuing without Kafka consumer.', error);
       this.isConnected = false;
-      throw error;
     }
   }
 
