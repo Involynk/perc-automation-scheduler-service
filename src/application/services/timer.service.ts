@@ -77,7 +77,7 @@ export class TimerService {
       throw new BadRequestException('newTargetExecutionTime must be in the future.');
     }
 
-    const delayMs = targetTimeMs - now;
+    const delayMs = Math.max(0, targetTimeMs - now);
     this.logger.log(`Rescheduling timer ${command.timerKey} to ${command.newTargetExecutionTime.toISOString()} (Delay: ${delayMs}ms)`);
 
     // 1. Transactional update in DB

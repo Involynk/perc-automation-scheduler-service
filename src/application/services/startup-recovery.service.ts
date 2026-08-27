@@ -63,7 +63,7 @@ export class StartupRecoveryService implements OnApplicationBootstrap {
         }
         // Sub-branch 3b: BullMQ job does not exist -> Enqueue with remaining delay
         else if (!bullJob) {
-          const remainingDelayMs = timer.targetExecutionTime.getTime() - now.getTime();
+          const remainingDelayMs = Math.max(0, timer.targetExecutionTime.getTime() - now.getTime());
           await this.queueService.addDelayedTimer(timer.id, timer.timerKey, remainingDelayMs);
           this.logger.log(`[Reconciliation] Re-enqueued missing BullMQ job for PENDING timer: ${timer.timerKey} (Delay: ${remainingDelayMs}ms)`);
           count++;
