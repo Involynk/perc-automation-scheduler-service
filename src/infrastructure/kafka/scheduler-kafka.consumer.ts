@@ -127,17 +127,6 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       });
     }
   }
-    } catch (handlerError: any) {
-      this.logger.error(`Error processing message from topic ${topic}:`, handlerError);
-      const dlqTopic = this.configService.get<string>('topics.commandsDlq', 'perc.scheduler.commands.dlq');
-      await this.kafkaProducer.publishToDlq(dlqTopic, payload.correlationId || messageKey, {
-        topic,
-        payload,
-        error: handlerError.message,
-        failedAt: new Date().toISOString(),
-      });
-    }
-  }
 
   private async handleResponseSent(payload: any): Promise<void> {
     const leadId = payload.leadId || payload.target?.entity_id || payload.correlationId;
