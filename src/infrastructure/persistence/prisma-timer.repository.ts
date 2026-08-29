@@ -4,7 +4,21 @@ import { CreateTimerDto, ITimerRepository } from '../../domain/interfaces/timer-
 import { TimerEntity } from '../../domain/entities/timer.entity';
 import { TimerStatus } from '../../domain/enums/timer-status.enum';
 import { OutboxStatus } from '../../domain/enums/outbox-status.enum';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as uuidValidate, v5 as uuidv5 } from 'uuid';
+
+const NAMESPACE_UUID = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+
+function toSafeUuid(id?: string): string | undefined {
+  if (!id) return undefined;
+  const stripped = id.startsWith('evt_') ? id.slice(4) : id;
+  if (uuidValidate(stripped)) {
+    return stripped;
+  }
+  if (uuidValidate(id)) {
+    return id;
+  }
+  return uuidv5(id, NAMESPACE_UUID);
+}
 
 const TRANSACTION_OPTIONS = {
   maxWait: 15000,
@@ -21,10 +35,11 @@ export class PrismaTimerRepository implements ITimerRepository {
     data: CreateTimerDto,
     eventId?: string,
   ): Promise<{ timer: TimerEntity; isDuplicate: boolean }> {
+    const safeEventId = toSafeUuid(eventId);
     return this.prisma.$transaction(async (tx) => {
       // 1. ProcessedEvent idempotency check if eventId is supplied
-      if (eventId) {
-        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId } });
+      if (safeEventId) {
+        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId: safeEventId } });
         if (alreadyProcessed) {
           this.logger.warn(`Duplicate eventId ${eventId} detected. Idempotently ignoring schedule command.`);
           const existing = await tx.timer.findUnique({ where: { timerKey: data.timerKey } });
@@ -35,7 +50,7 @@ export class PrismaTimerRepository implements ITimerRepository {
         try {
           await tx.processedEvent.create({
             data: {
-              eventId,
+              eventId: safeEventId,
               consumerGroup: 'perc-scheduler-group',
             },
           });
@@ -94,9 +109,10 @@ export class PrismaTimerRepository implements ITimerRepository {
     reason?: string,
     eventId?: string,
   ): Promise<{ cancelledKeys: string[]; isDuplicate: boolean }> {
+    const safeEventId = toSafeUuid(eventId);
     return this.prisma.$transaction(async (tx) => {
-      if (eventId) {
-        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId } });
+      if (safeEventId) {
+        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId: safeEventId } });
         if (alreadyProcessed) {
           this.logger.warn(`Duplicate eventId ${eventId} on cancel. Ignoring.`);
           return { cancelledKeys: [timerKey], isDuplicate: true };
@@ -104,7 +120,7 @@ export class PrismaTimerRepository implements ITimerRepository {
         try {
           await tx.processedEvent.create({
             data: {
-              eventId,
+              eventId: safeEventId,
               consumerGroup: 'perc-scheduler-group',
             },
           });
@@ -143,9 +159,10 @@ export class PrismaTimerRepository implements ITimerRepository {
     reason?: string,
     eventId?: string,
   ): Promise<{ cancelledKeys: string[]; isDuplicate: boolean }> {
+    const safeEventId = toSafeUuid(eventId);
     return this.prisma.$transaction(async (tx) => {
-      if (eventId) {
-        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId } });
+      if (safeEventId) {
+        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId: safeEventId } });
         if (alreadyProcessed) {
           this.logger.warn(`Duplicate eventId ${eventId} on prefix cancel. Ignoring.`);
           return { cancelledKeys: [], isDuplicate: true };
@@ -153,7 +170,7 @@ export class PrismaTimerRepository implements ITimerRepository {
         try {
           await tx.processedEvent.create({
             data: {
-              eventId,
+              eventId: safeEventId,
               consumerGroup: 'perc-scheduler-group',
             },
           });
@@ -199,9 +216,10 @@ export class PrismaTimerRepository implements ITimerRepository {
     newPayload?: Record<string, any>,
     eventId?: string,
   ): Promise<{ timer: TimerEntity; isDuplicate: boolean }> {
+    const safeEventId = toSafeUuid(eventId);
     return this.prisma.$transaction(async (tx) => {
-      if (eventId) {
-        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId } });
+      if (safeEventId) {
+        const alreadyProcessed = await tx.processedEvent.findUnique({ where: { eventId: safeEventId } });
         if (alreadyProcessed) {
           this.logger.warn(`Duplicate eventId ${eventId} on reschedule. Ignoring.`);
           const existing = await tx.timer.findUnique({ where: { timerKey } });
@@ -210,7 +228,7 @@ export class PrismaTimerRepository implements ITimerRepository {
         try {
           await tx.processedEvent.create({
             data: {
-              eventId,
+              eventId: safeEventId,
               consumerGroup: 'perc-scheduler-group',
             },
           });
