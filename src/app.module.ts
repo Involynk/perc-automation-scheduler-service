@@ -7,6 +7,7 @@ import { KafkaModule } from './infrastructure/kafka/kafka.module';
 import { TimerService } from './application/services/timer.service';
 import { OutboxPublisherService } from './application/services/outbox-publisher.service';
 import { StartupRecoveryService } from './application/services/startup-recovery.service';
+import { KeepAliveService } from './infrastructure/services/keep-alive.service';
 import { TimerController } from './presentation/http/timer.controller';
 import { HealthController } from './presentation/http/health.controller';
 
@@ -25,6 +26,7 @@ import { HealthController } from './presentation/http/health.controller';
     TimerService,
     OutboxPublisherService,
     StartupRecoveryService,
+    KeepAliveService,
   ],
 })
 export class AppModule {}
