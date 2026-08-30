@@ -52,9 +52,13 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
         'topics.responseSent',
         'perc.response.sent',
       );
+      const followupSentTopic = this.configService.get<string>(
+        'topics.followupSent',
+        'perc.followup.sent',
+      );
 
       await this.consumer.subscribe({
-        topics: [responseSentTopic],
+        topics: [responseSentTopic, followupSentTopic],
         fromBeginning: false,
       });
 
@@ -65,7 +69,7 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       });
 
       this.logger.log(
-        `Subscribed to Kafka topics: ${responseSentTopic}`,
+        `Subscribed to Kafka topics: ${responseSentTopic}, ${followupSentTopic}`,
       );
     } catch (error) {
       this.logger.error('Failed to initialize Kafka Consumer (Broker may be unreachable). Continuing without Kafka consumer.', error);
@@ -108,10 +112,11 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const responseSentTopic = this.configService.get<string>('topics.responseSent');
+    const responseSentTopic = this.configService.get<string>('topics.responseSent', 'perc.response.sent');
+    const followupSentTopic = this.configService.get<string>('topics.followupSent', 'perc.followup.sent');
 
     try {
-      if (topic === responseSentTopic) {
+      if (topic === responseSentTopic || topic === followupSentTopic) {
         await this.handleResponseSent(payload);
       } else {
         this.logger.warn(`Unhandled topic received: ${topic}`);
@@ -156,6 +161,8 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
         targetService,
         requestingService,
         triggeredByResponseEventId: payload.eventId || payload.id,
+        sourceReferenceId: payload.sourceReferenceId || payload.phone || '',
+        channel: payload.channel || 'whatsapp',
       },
     );
 
@@ -163,3 +170,4 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
     await this.timerService.scheduleTimer(command);
   }
 }
+
