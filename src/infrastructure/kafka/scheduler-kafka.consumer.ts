@@ -116,8 +116,13 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
     const followupSentTopic = this.configService.get<string>('topics.followupSent', 'perc.followup.sent');
 
     try {
-      if (topic === responseSentTopic || topic === followupSentTopic) {
+      if (topic === responseSentTopic) {
         await this.handleResponseSent(payload);
+      } else if (topic === followupSentTopic) {
+        const leadId = payload.leadId || payload.target?.entity_id || messageKey;
+        this.logger.log(
+          `✅ Follow-up message sent for lead ${leadId}. Follow-up cycle complete for this event (no new timer scheduled).`,
+        );
       } else {
         this.logger.warn(`Unhandled topic received: ${topic}`);
       }
