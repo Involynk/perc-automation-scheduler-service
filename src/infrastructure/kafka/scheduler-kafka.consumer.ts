@@ -116,13 +116,8 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
     const followupSentTopic = this.configService.get<string>('topics.followupSent', 'perc.followup.sent');
 
     try {
-      if (topic === responseSentTopic) {
+      if (topic === responseSentTopic || topic === followupSentTopic) {
         await this.handleResponseSent(payload);
-      } else if (topic === followupSentTopic) {
-        const leadId = payload.leadId || payload.target?.entity_id || messageKey;
-        this.logger.log(
-          `✅ Follow-up message sent for lead ${leadId}. Follow-up cycle complete for this event (no new timer scheduled).`,
-        );
       } else {
         this.logger.warn(`Unhandled topic received: ${topic}`);
       }
@@ -146,9 +141,15 @@ export class SchedulerKafkaConsumer implements OnModuleInit, OnModuleDestroy {
     }
 
     const defaultDelayMs = this.configService.get<number>('timer.defaultFollowupDelayMs', 7200000);
-    const executeAt = payload.targetExecutionTime || payload.executeAt
-      ? new Date(payload.targetExecutionTime || payload.executeAt)
-      : new Date(Date.now() + defaultDelayMs);
+    let executeAt = new Date(Date.now() + defaultDelayMs);
+
+    if (payload.targetExecutionTime || payload.executeAt) {
+      const explicitTime = new Date(payload.targetExecutionTime || payload.executeAt);
+      // Only use explicit target time if it is strictly in the future (> 10s from now)
+      if (explicitTime.getTime() > Date.now() + 10000) {
+        executeAt = explicitTime;
+      }
+    }
 
     const requestingService = payload.requestingService || 'response-service';
     const targetService = payload.targetService || payload.targetConsumer || 'followup-service';
